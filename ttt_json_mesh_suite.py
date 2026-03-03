@@ -6,7 +6,7 @@ bl_info = {
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
     "category": "Import-Export",
-    "doc_url": "https://github.com/kastomd",
+    "doc_url": "https://github.com/kastomd/Addon_Custom_JSON_Mesh_BLENDER/releases",
 }
 
 import bpy
