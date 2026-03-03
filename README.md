@@ -31,7 +31,10 @@ Supports:
 
 ## 📦 Installation
 
-1. Download the `.py` file.
+1. Download the `.zip` file.
+
+[![GitHub All Releases](https://img.shields.io/github/v/release/kastomd/Addon_Custom_JSON_Mesh_BLENDER?style=for-the-badge)](https://github.com/kastomd/Addon_Custom_JSON_Mesh_BLENDER/releases/latest)
+
 2. Open Blender.
 3. Go to: Edit > Preferences > Add-ons
 4. Click **Install...**
