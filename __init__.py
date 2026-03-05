@@ -160,7 +160,7 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
             json.dump(data, f, indent=4)
 
         eval_obj.to_mesh_clear()
-        self.report({'INFO'}, "Exportado a fomrato PART JSON")
+        self.report({'INFO'}, "Exportado a formato PART JSON")
         return {'FINISHED'}
 
 # =========================================================
