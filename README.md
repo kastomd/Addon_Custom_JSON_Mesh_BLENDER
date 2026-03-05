@@ -13,7 +13,6 @@ Supports:
 ### PART Format
 - Triangulates mesh automatically
 - Exports faces explicitly
-- Axis conversion: `(x, y, z) → (x, z, -y)`
 - UV conversion to 0–255 integer range
 - Vertex Groups exported as `id_bones`
 - Weights aligned with `id_bones` order

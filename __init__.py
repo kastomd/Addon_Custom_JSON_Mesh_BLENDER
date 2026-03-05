@@ -149,9 +149,22 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
 
             faces_json.append(face_indices)
 
+        id_bones_hex = []
+
+        for name in id_bones:
+            name = name.strip()
+
+            if name.lower().startswith("0x"):
+                # ya es hexadecimal
+                value = int(name, 16)
+            else:
+                # asumir decimal
+                value = int(name)
+
+            id_bones_hex.append(hex(value))
         data = {
             "type": "part",
-            "id_bones": id_bones,
+            "id_bones": id_bones_hex,
             "vertices": vertices_json,
             "faces": faces_json
         }
@@ -185,7 +198,7 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
     ordenar_vertices: BoolProperty(
         name="Ordenar Vertices",
         description="Ordena los vértices antes de exportar\n(USAR SOLO SI ELIMINO, AGRUEGO O MOVIO VERTICES)",
-        default=False
+        default=True
     )
 
     def draw(self, context):
@@ -206,22 +219,23 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
         # Copiar malla
         # -----------------------------
         mesh_copy = mesh.copy()
-        # crear bmesh temporal en memoria
-        bm = bmesh.new()
-        bm.from_mesh(mesh_copy)
+        if self.ordenar_vertices:
+            # crear bmesh temporal en memoria
+            bm = bmesh.new()
+            bm.from_mesh(mesh_copy)
 
-        # eliminar vértices duplicados
-        bmesh.ops.remove_doubles(
-            bm,
-            verts=bm.verts,
-            dist=0.00001
-        )
+            # eliminar vértices duplicados
+            bmesh.ops.remove_doubles(
+                bm,
+                verts=bm.verts,
+                dist=0.00001
+            )
 
-        # escribir cambios en la copia
-        bm.to_mesh(mesh_copy)
+            # escribir cambios en la copia
+            bm.to_mesh(mesh_copy)
 
-        # liberar bmesh
-        bm.free()
+            # liberar bmesh
+            bm.free()
         list_triangulos = self.obtener_indices_triangulos(mesh_copy) if self.ordenar_vertices else []
 
         # -----------------------------
@@ -690,6 +704,21 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
                 raise ValueError("El archivo no es tipo part")
 
         id_bones = data.get("id_bones", [])
+        id_bones_hex = []
+
+        for name in id_bones:
+            name = name.strip()
+
+            if name.lower().startswith("0x"):
+                # ya es hexadecimal
+                value = int(name, 16)
+            else:
+                # asumir decimal
+                value = int(name)
+
+            id_bones_hex.append(hex(value))
+        id_bones = id_bones_hex
+
         vertices_data = data["vertices"]
         faces_data = data["faces"]
 
