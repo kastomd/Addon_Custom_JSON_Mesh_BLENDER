@@ -6,7 +6,7 @@ bl_info = {
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
     "category": "Import-Export",
-    "doc_url": "https://github.com/kastomd/Addon_Custom_JSON_Mesh_BLENDER/releases",
+    "doc_url": "https://github.com/kastomd/Addon_Custom_JSON_Mesh_BLENDER/releases/latest",
 }
 
 import bpy
@@ -119,7 +119,7 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
                 loop = mesh.loops[loop_index]
                 vert = mesh.vertices[loop.vertex_index]
 
-                pos = [vert.co.x, vert.co.z, -vert.co.y]
+                pos = [vert.co.x, vert.co.y, vert.co.z]
 
                 if uv_layer:
                     uv = uv_layer[loop_index].uv
@@ -149,9 +149,22 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
 
             faces_json.append(face_indices)
 
+        id_bones_hex = []
+
+        for name in id_bones:
+            name = name.strip()
+
+            if name.lower().startswith("0x"):
+                # ya es hexadecimal
+                value = int(name, 16)
+            else:
+                # asumir decimal
+                value = int(name)
+
+            id_bones_hex.append(hex(value))
         data = {
             "type": "part",
-            "id_bones": id_bones,
+            "id_bones": id_bones_hex,
             "vertices": vertices_json,
             "faces": faces_json
         }
@@ -160,6 +173,7 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
             json.dump(data, f, indent=4)
 
         eval_obj.to_mesh_clear()
+        self.report({'INFO'}, "Exportado a formato PART JSON")
         return {'FINISHED'}
 
 # =========================================================
@@ -172,7 +186,7 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
     bl_options = {'REGISTER'}
     bl_description = (
         "Exporta la malla activa al formato Subpart.\n"
-        "Convierte UV al formato TTT."
+        "Guarda grosor, uv(0-255), vertices, unk, influencias."
     )
 
     filename_ext = ".json"
@@ -183,8 +197,8 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
 
     ordenar_vertices: BoolProperty(
         name="Ordenar Vertices",
-        description="Ordena los vértices antes de exportar\n(USAR SOLO SI ELIMINO O AGRUEGO VERTICES)",
-        default=False
+        description="Ordena los vértices antes de exportar\n(USAR SOLO SI ELIMINO, AGRUEGO O MOVIO VERTICES)",
+        default=True
     )
 
     def draw(self, context):
@@ -202,19 +216,27 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
         mesh.calc_loop_triangles()
 
         # -----------------------------
-        # Copiar malla y aplicar rotación inversa
+        # Copiar malla
         # -----------------------------
         mesh_copy = mesh.copy()
-        list_triangulos = self.obtener_indices_triangulos(mesh_copy) if self.ordenar_vertices else []
-        
-        for v in mesh_copy.vertices:
-            x = v.co.x
-            y = v.co.y
-            z = v.co.z
+        if self.ordenar_vertices:
+            # crear bmesh temporal en memoria
+            bm = bmesh.new()
+            bm.from_mesh(mesh_copy)
 
-            v.co.x = x
-            v.co.y = z
-            v.co.z = -y
+            # eliminar vértices duplicados
+            bmesh.ops.remove_doubles(
+                bm,
+                verts=bm.verts,
+                dist=0.00001
+            )
+
+            # escribir cambios en la copia
+            bm.to_mesh(mesh_copy)
+
+            # liberar bmesh
+            bm.free()
+        list_triangulos = self.obtener_indices_triangulos(mesh_copy) if self.ordenar_vertices else []
 
         # -----------------------------
         # Obtener strip
@@ -285,7 +307,7 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
         # -----------------------------
         data = {
             "type": "subpart",
-            "grosor": list(obj.json_mesh_props.grosor),
+            "grosor": list(obj.json_mesh_props.grosor) if not self.ordenar_vertices else [512.0, 512.0, 512.0],
             "id_bones": id_bones,
             "unk": obj.json_mesh_props.unk,
             "vertices": vertices_json
@@ -562,7 +584,7 @@ class IMPORT_OT_json_mesh(Operator, ImportHelper):
 
                 if pos and len(pos) == 3:
                     x, y, z = pos
-                    verts.append((x, -z, y))
+                    verts.append((x, y, z))
 
                     if uv and len(uv) == 2:
                         u = uv[0] / 255.0
@@ -682,6 +704,21 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
                 raise ValueError("El archivo no es tipo part")
 
         id_bones = data.get("id_bones", [])
+        id_bones_hex = []
+
+        for name in id_bones:
+            name = name.strip()
+
+            if name.lower().startswith("0x"):
+                # ya es hexadecimal
+                value = int(name, 16)
+            else:
+                # asumir decimal
+                value = int(name)
+
+            id_bones_hex.append(hex(value))
+        id_bones = id_bones_hex
+
         vertices_data = data["vertices"]
         faces_data = data["faces"]
 
@@ -696,8 +733,8 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
 
             # Inversa de la transformación
             orig_x = x
-            orig_y = -z
-            orig_z = y
+            orig_y = y
+            orig_z = z
 
             verts.append([orig_x, orig_y, orig_z])
 
