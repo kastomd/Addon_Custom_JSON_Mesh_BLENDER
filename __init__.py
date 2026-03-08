@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Custom JSON Mesh Suite (PART + TTT)",
     "author": "Kasto",
-    "version": (2, 0, 0),
+    "version": (2, 1, 0),
     "blender": (3, 0, 0),
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
@@ -12,6 +12,7 @@ bl_info = {
 import bpy
 import bmesh
 import json
+import os
 from pathlib import Path
 from bpy.types import (
     Operator,
@@ -76,104 +77,113 @@ class OBJECT_PT_json_mesh_panel(Panel):
 class EXPORT_OT_part_json(Operator, ExportHelper):
     bl_idname = "export_scene.part_json_mesh"
     bl_label = "Export PART JSON Mesh"
-    bl_description = (
-        "Exporta la malla activa al formato Part.\n"
-        "Guarda las coordenadas, uv, faces y grupos de influencia."
-    )
 
     filename_ext = ".json"
-    filter_glob: StringProperty(default="*.json", options={'HIDDEN'})
+
+    directory: StringProperty(
+        name="Output Directory",
+        subtype='DIR_PATH'
+    )
 
     def execute(self, context):
 
-        obj = context.active_object
-        if not obj or obj.type != 'MESH':
-            self.report({'ERROR'}, "Selecciona un objeto MESH")
+        selected = [o for o in context.selected_objects if o.type == 'MESH']
+
+        if not selected:
+            self.report({'ERROR'}, "Selecciona al menos un objeto MESH")
             return {'CANCELLED'}
 
         depsgraph = context.evaluated_depsgraph_get()
-        eval_obj = obj.evaluated_get(depsgraph)
-        mesh = eval_obj.to_mesh()
 
-        bm = bmesh.new()
-        bm.from_mesh(mesh)
-        bmesh.ops.triangulate(bm, faces=bm.faces)
-        bm.to_mesh(mesh)
-        bm.free()
+        for obj in selected:
 
-        mesh.calc_loop_triangles()
+            eval_obj = obj.evaluated_get(depsgraph)
+            mesh = eval_obj.to_mesh()
 
-        uv_layer = mesh.uv_layers.active.data if mesh.uv_layers.active else None
+            bm = bmesh.new()
+            bm.from_mesh(mesh)
+            bmesh.ops.triangulate(bm, faces=bm.faces)
+            bm.to_mesh(mesh)
+            bm.free()
 
-        id_bones = [vg.name for vg in obj.vertex_groups]
+            mesh.calc_loop_triangles()
 
-        vertices_json = []
-        faces_json = []
-        vertex_map = {}
-        counter = 0
+            uv_layer = mesh.uv_layers.active.data if mesh.uv_layers.active else None
 
-        for tri in mesh.loop_triangles:
-            face_indices = []
+            id_bones = [vg.name for vg in obj.vertex_groups]
 
-            for loop_index in tri.loops:
-                loop = mesh.loops[loop_index]
-                vert = mesh.vertices[loop.vertex_index]
+            vertices_json = []
+            faces_json = []
+            vertex_map = {}
+            counter = 0
 
-                pos = [vert.co.x, vert.co.y, vert.co.z]
+            for tri in mesh.loop_triangles:
+                face_indices = []
 
-                if uv_layer:
-                    uv = uv_layer[loop_index].uv
-                    uv_int = [int(uv.x * 255), int(uv.y * 255)]
+                for loop_index in tri.loops:
+
+                    loop = mesh.loops[loop_index]
+                    vert = mesh.vertices[loop.vertex_index]
+
+                    pos = [vert.co.x, vert.co.y, vert.co.z]
+
+                    if uv_layer:
+                        uv = uv_layer[loop_index].uv
+                        uv_int = [int(uv.x * 255), int(uv.y * 255)]
+                    else:
+                        uv_int = [0, 0]
+
+                    weights = ["N/A"] * len(id_bones)
+
+                    for g in vert.groups:
+                        name = obj.vertex_groups[g.group].name
+                        idx = id_bones.index(name)
+                        weights[idx] = float(g.weight)
+
+                    key = (tuple(pos), tuple(uv_int), tuple(weights))
+
+                    if key not in vertex_map:
+                        vertex_map[key] = counter
+                        vertices_json.append({
+                            "id_v": str(counter),
+                            "pos": pos,
+                            "uv": uv_int,
+                            "weights": weights
+                        })
+                        counter += 1
+
+                    face_indices.append(vertex_map[key])
+
+                faces_json.append(face_indices)
+
+            id_bones_hex = []
+
+            for name in id_bones:
+
+                name = name.strip()
+
+                if name.lower().startswith("0x"):
+                    value = int(name, 16)
                 else:
-                    uv_int = [0, 0]
+                    value = int(name)
 
-                weights = ["N/A"] * len(id_bones)
-                for g in vert.groups:
-                    name = obj.vertex_groups[g.group].name
-                    idx = id_bones.index(name)
-                    weights[idx] = float(g.weight)
+                id_bones_hex.append(hex(value))
 
-                key = (tuple(pos), tuple(uv_int), tuple(weights))
+            data = {
+                "type": "part",
+                "id_bones": id_bones_hex,
+                "vertices": vertices_json,
+                "faces": faces_json
+            }
 
-                if key not in vertex_map:
-                    vertex_map[key] = counter
-                    vertices_json.append({
-                        "id_v": str(counter),
-                        "pos": pos,
-                        "uv": uv_int,
-                        "weights": weights
-                    })
-                    counter += 1
+            filepath = os.path.join(self.directory, obj.name + ".json")
 
-                face_indices.append(vertex_map[key])
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4)
 
-            faces_json.append(face_indices)
+            eval_obj.to_mesh_clear()
 
-        id_bones_hex = []
-
-        for name in id_bones:
-            name = name.strip()
-
-            if name.lower().startswith("0x"):
-                # ya es hexadecimal
-                value = int(name, 16)
-            else:
-                # asumir decimal
-                value = int(name)
-
-            id_bones_hex.append(hex(value))
-        data = {
-            "type": "part",
-            "id_bones": id_bones_hex,
-            "vertices": vertices_json,
-            "faces": faces_json
-        }
-
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-
-        eval_obj.to_mesh_clear()
-        self.report({'INFO'}, "Exportado a formato PART JSON")
+        self.report({'INFO'}, f"Exportados {len(selected)} objetos")
         return {'FINISHED'}
 
 # =========================================================
