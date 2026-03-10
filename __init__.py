@@ -1,8 +1,8 @@
 bl_info = {
     "name": "Custom JSON Mesh Suite (PART + TTT)",
     "author": "Kasto",
-    "version": (2, 1, 0),
-    "blender": (3, 0, 0),
+    "version": (2, 1, 1),
+    "blender": (4, 0, 0),
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
     "category": "Import-Export",
@@ -77,6 +77,10 @@ class OBJECT_PT_json_mesh_panel(Panel):
 class EXPORT_OT_part_json(Operator, ExportHelper):
     bl_idname = "export_scene.part_json_mesh"
     bl_label = "Export PART JSON Mesh"
+    bl_description = (
+        "Exporta la malla activa al formato Part.\n"
+        "Guarda uv (0-255), vertices, unk, influencias, faces."
+    )
 
     filename_ext = ".json"
 
@@ -266,7 +270,7 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
         group_index_map = {}
 
         for vg in obj.vertex_groups:
-            bone_id = "0x" + vg.name
+            bone_id = vg.name if "0x" in vg.name.lower() else f"0x{int(vg.name):02X}"
             id_bones.append(bone_id)
             group_index_map[vg.index] = len(id_bones) - 1
 
@@ -644,7 +648,7 @@ class IMPORT_OT_json_mesh(Operator, ImportHelper):
             groups = {}
 
             for bone_id in id_bones:
-                name = bone_id.replace("0x", "")
+                name = bone_id if "0x" in bone_id.lower() else f"0x{(int(bone_id)):02X}"
                 groups[bone_id] = obj.vertex_groups.new(name=name)
 
             for vert_index, v in enumerate(vertices):
@@ -699,7 +703,7 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
             ]
 
         for path in filepaths:
-            self.import_json(context, path)
+            self.import_json(context, Path(path))
 
         self.report({'INFO'}, f"Importados {len(filepaths)} archivo(s)")
         return {'FINISHED'}
@@ -733,7 +737,7 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
         faces_data = data["faces"]
 
         mesh = bpy.data.meshes.new("ImportedMesh")
-        obj = bpy.data.objects.new("ImportedObject", mesh)
+        obj = bpy.data.objects.new(filepath.stem, mesh)
         context.collection.objects.link(obj)
 
         verts = []
