@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Custom JSON Mesh Suite (PART + TTT)",
     "author": "Kasto",
-    "version": (2, 1, 1),
+    "version": (2, 2, 1),
     "blender": (4, 0, 0),
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
@@ -31,6 +31,8 @@ from bpy.props import (
     PointerProperty,
 )
 from bpy_extras.io_utils import ImportHelper, ExportHelper
+from . import gradient_weights
+
 
 # =========================================================
 # PROPIEDADES TTT
@@ -70,6 +72,12 @@ class OBJECT_PT_json_mesh_panel(Panel):
 
         layout.prop(props, "grosor")
         layout.prop(props, "unk")
+
+        layout.separator()
+        layout.label(text="Weights Tools:")
+
+        layout.operator("object.gradient_weights_auto", icon='MOD_VERTEX_WEIGHT')
+
 
 # =========================================================
 # EXPORT PART
@@ -758,6 +766,8 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
+    gradient_weights.register()
+
     bpy.types.Object.json_mesh_props = PointerProperty(type=JSONMeshProperties)
 
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
@@ -768,6 +778,8 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_export)
 
     del bpy.types.Object.json_mesh_props
+
+    gradient_weights.unregister()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
