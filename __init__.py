@@ -142,7 +142,12 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
 
                     if uv_layer:
                         uv = uv_layer[loop_index].uv
-                        uv_int = [int(uv.x * 255), int(uv.y * 255)]
+
+                        # Flip vertical (equivalente a escala Y = -1)
+                        u = uv.x
+                        v = 1.0 - uv.y
+
+                        uv_int = [int(u * 255), int(v * 255)]
                     else:
                         uv_int = [0, 0]
 
@@ -710,7 +715,7 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
 
                     uv_layer.data[loop_index].uv = (
                         uv_raw[0] / 255.0,
-                        uv_raw[1] / 255.0
+                        1 - (uv_raw[1] / 255.0)
                     )
 
 # =========================================================
