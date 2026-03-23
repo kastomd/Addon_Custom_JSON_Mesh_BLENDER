@@ -147,7 +147,7 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
                         u = uv.x
                         v = 1.0 - uv.y
 
-                        uv_int = [int(u * 255), int(v * 255)]
+                        uv_int = [int(u * 256), int(v * 256)]
                     else:
                         uv_int = [0, 0]
 
@@ -307,8 +307,8 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
                 for loop in mesh_copy.loops:
                     if loop.vertex_index == original_index:
                         uv = uv_data[loop.index].uv
-                        u = int(round(uv.x * 255.0))
-                        v = int(round((1.0 - uv.y) * 255.0))
+                        u = int(round(uv.x * 256.0))
+                        v = int(round((1.0 - uv.y) * 256.0))
                         uv_final = [u, v]
                         break
 
@@ -533,8 +533,8 @@ class IMPORT_OT_json_mesh(Operator, ImportHelper):
                     verts.append((x, y, z))
 
                     if uv and len(uv) == 2:
-                        u = uv[0] / 255.0
-                        v_coord = 1.0 - (uv[1] / 255.0)
+                        u = uv[0] / 256.0
+                        v_coord = 1.0 - (uv[1] / 256.0)
                         uv_coords.append((u, v_coord))
                     else:
                         uv_coords.append((0.0, 0.0))
@@ -714,8 +714,8 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
                     uv_raw = vertices_data[vert_index]["uv"]
 
                     uv_layer.data[loop_index].uv = (
-                        uv_raw[0] / 255.0,
-                        1 - (uv_raw[1] / 255.0)
+                        uv_raw[0] / 256.0,
+                        1 - (uv_raw[1] / 256.0)
                     )
 
 # =========================================================
