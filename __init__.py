@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Custom JSON Mesh Suite (PART + TTT)",
     "author": "Kasto",
-    "version": (2, 1, 1),
+    "version": (2, 2, 1),
     "blender": (4, 0, 0),
     "location": "File > Import-Export",
     "description": "Import/Export PART y Subpart (TTT) JSON Mesh",
@@ -14,6 +14,7 @@ import bmesh
 import json
 import os
 from pathlib import Path
+from collections import defaultdict
 from bpy.types import (
     Operator,
     Panel,
@@ -30,6 +31,8 @@ from bpy.props import (
     PointerProperty,
 )
 from bpy_extras.io_utils import ImportHelper, ExportHelper
+from . import gradient_weights
+
 
 # =========================================================
 # PROPIEDADES TTT
@@ -69,6 +72,12 @@ class OBJECT_PT_json_mesh_panel(Panel):
 
         layout.prop(props, "grosor")
         layout.prop(props, "unk")
+
+        layout.separator()
+        layout.label(text="Weights Tools:")
+
+        layout.operator("object.gradient_weights_auto", icon='MOD_VERTEX_WEIGHT')
+
 
 # =========================================================
 # EXPORT PART
@@ -133,7 +142,12 @@ class EXPORT_OT_part_json(Operator, ExportHelper):
 
                     if uv_layer:
                         uv = uv_layer[loop_index].uv
-                        uv_int = [int(uv.x * 255), int(uv.y * 255)]
+
+                        # Flip vertical (equivalente a escala Y = -1)
+                        u = uv.x
+                        v = 1.0 - uv.y
+
+                        uv_int = [int(u * 256), int(v * 256)]
                     else:
                         uv_int = [0, 0]
 
@@ -293,8 +307,8 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
                 for loop in mesh_copy.loops:
                     if loop.vertex_index == original_index:
                         uv = uv_data[loop.index].uv
-                        u = int(round(uv.x * 255.0))
-                        v = int(round((1.0 - uv.y) * 255.0))
+                        u = int(round(uv.x * 256.0))
+                        v = int(round((1.0 - uv.y) * 256.0))
                         uv_final = [u, v]
                         break
 
@@ -385,169 +399,87 @@ class EXPORT_OT_subpart_json(Operator, ExportHelper):
         For more information, please refer to <https://unlicense.org>
 """
 
+    def build_edge_map(self, triangles):
+        edge_map = defaultdict(list)
+
+        for i, (a, b, c) in enumerate(triangles):
+            edges = [
+                tuple(sorted((a, b))),
+                tuple(sorted((b, c))),
+                tuple(sorted((c, a)))
+            ]
+            for e in edges:
+                edge_map[e].append(i)
+
+        return edge_map
 
     def find_strip(self, triangles):
-        """ Finds a triangle strip representation for a given set of triangle
-            faces.
+        triangles = [tuple(t) for t in triangles]
+        edge_map = self.build_edge_map(triangles)
 
-        Args:
-            triangles (list of triangles): A list of triangles. A triangle is
-                represented by a list or tuple of 3 elements. The order of those
-                elements does not matter. The elements should be comparable and
-                should be able to be an element of a set.
+        used = [False] * len(triangles)
+        result = []
 
-        Returns:
-            List of elements: A list consisting of the triangle elements that form
-            a triangle strip covering all triangles at least once.
-        """
+        for start_idx in range(len(triangles)):
+            if used[start_idx]:
+                continue
 
-        def find_strip_internal(current_strip, used_triangles, max_triangle_usage):
+            tri = triangles[start_idx]
 
-            # check if we covered all triangles by now
-            unused_triangles_existing = False
-            for i in range(len(triangles)):
-                if used_triangles[i] == 0:
-                    unused_triangles_existing = True
+            # iniciar strip
+            strip = [tri[0], tri[1], tri[2]]
+            used[start_idx] = True
+
+            flip = False  # controla winding
+
+            while True:
+                if flip:
+                    edge = (strip[-1], strip[-2])
+                else:
+                    edge = (strip[-2], strip[-1])
+
+                edge_key = tuple(sorted(edge))
+                candidates = edge_map[edge_key]
+
+                found = False
+
+                for idx in candidates:
+                    if used[idx]:
+                        continue
+
+                    t = triangles[idx]
+                    s = set(t)
+
+                    if not s.issuperset(edge):
+                        continue
+
+                    new_v = next(iter(s - set(edge)))
+
+                    # validar que realmente forma triángulo
+                    a, b = edge
+                    if len({a, b, new_v}) < 3:
+                        continue  # degenerate real, evitar
+
+                    strip.append(new_v)
+                    used[idx] = True
+                    flip = not flip
+                    found = True
                     break
 
-            # if we covered all triangles, we found a solution and return it
-            if not unused_triangles_existing:
-                return current_strip
+                if not found:
+                    break
 
-            if len(current_strip) == 0:
-                # initial state, iterate over all triangles and use each one as
-                # the starting point for the recursive algorithm.
-                for i, triangle in enumerate(triangles):
-                    # mark the triangle as used triangle (used once)
-                    used_triangles[i] = 1
-
-                    # Each permutation of the first triangles vertices have to
-                    # be tested, since their order matters.
-
-                    # add the triangles elements (vertices) to the current triangle
-                    # strip and recursively find adjacent triangles
-                    current_strip += [triangle[0], triangle[1], triangle[2]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-
-                    # if the result of that search is not none, we found a solution
-                    # hence return the solution
-                    if result is not None:
-                        return result
-                    # otherwise undo our changes to the current triangle strip
-                    current_strip = current_strip[:-3]
-
-                    # and repeat the same for all other permutations
-                    current_strip += [triangle[0], triangle[2], triangle[1]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    if result is not None:
-                        return result
-                    current_strip = current_strip[:-3]
-
-                    current_strip += [triangle[1], triangle[0], triangle[2]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    if result is not None:
-                        return result
-                    current_strip = current_strip[:-3]
-
-                    current_strip += [triangle[1], triangle[2], triangle[0]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    if result is not None:
-                        return result
-                    current_strip = current_strip[:-3]
-
-                    current_strip += [triangle[2], triangle[0], triangle[1]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    if result is not None:
-                        return result
-                    current_strip = current_strip[:-3]
-
-                    current_strip += [triangle[2], triangle[1], triangle[0]]
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    if result is not None:
-                        return result
-                    current_strip = current_strip[:-3]
-
-                    # if we checked all permutations of the current triangle and
-                    # none was successfull, reset the usage of the triangle and
-                    # try the next one
-                    used_triangles[i] = 0
+            # conectar strips con degenerates
+            if not result:
+                result.extend(strip)
             else:
-                # non initial state
-                # checking each triangle if it can be used to extend the current
-                # triangle strip. Therefore the triangles strip last two vertices
-                # have to be part of the triangle
-                for i, triangle in enumerate(triangles):
+                # degenerates: repetir último y primero
+                result.append(result[-1])
+                result.append(strip[0])
+                result.extend(strip)
 
-                    # check if the triangle is already covered the maximum allowed
-                    # amount, if this is true, we cannot use it again for the
-                    # solution
-                    if used_triangles[i] >= max_triangle_usage:
-                        continue
-
-                    # check if the last two vertices of the current strip are part
-                    # of the current triangle
-                    triangle_as_set = set(triangle)
-                    part_of_triangle = {current_strip[-1], current_strip[-2]}
-                    if not triangle_as_set.issuperset(part_of_triangle):
-                        # triangle does not share two of the same vertices, hence
-                        # we cannot use it
-                        continue
-
-                    # get the vertex that was not part of the triangle strip
-                    triangle_vertex = list(
-                        triangle_as_set.difference(part_of_triangle))[0]
-
-                    # increase the usage of the current triangle and append its
-                    # vertex to the current strip
-                    used_triangles[i] += 1
-                    current_strip.append(triangle_vertex)
-
-                    # now check recursively for a solution
-                    result = find_strip_internal(
-                        current_strip, used_triangles, max_triangle_usage)
-                    # if a solution was found, we return it
-                    if result is not None:
-                        return result
-
-                    # otherwise remove the current triangle from the strip and
-                    # reduce its usage counter and continue with the next one.
-                    current_strip.pop()
-                    used_triangles[i] -= 1
-
-            # if we reached here, we did not find a solution an thus return None
-            return None
-
-        # since it is possible that some triangles have to be covered twice by the
-        # triangle strip in order to allow for a solution to exist, we increase the
-        # allowed triangle usage / coverage until we find a solution
-        usage = 1
-        result = None
-
-        # we repeat the search until we found a solution
-        while result is None:
-            # initialize the used / covered triangle count and set it to zero for
-            # every triangle
-            tmp_used_triangles = dict()
-            for i in range(len(triangles)):
-                tmp_used_triangles[i] = 0
-
-            # we start out with an empty triangle strip
-            tmp_triangle_strip = []
-            # call our function to find a triangle strip for the given constraints
-            result = find_strip_internal(
-                tmp_triangle_strip, tmp_used_triangles, usage)
-
-            # increase the allowed usage for the next check
-            usage += 1
-
-        # return the found solution
         return result
+
 
 # =========================================================
 # IMPORTADORES
@@ -601,8 +533,8 @@ class IMPORT_OT_json_mesh(Operator, ImportHelper):
                     verts.append((x, y, z))
 
                     if uv and len(uv) == 2:
-                        u = uv[0] / 255.0
-                        v_coord = 1.0 - (uv[1] / 255.0)
+                        u = uv[0] / 256.0
+                        v_coord = 1.0 - (uv[1] / 256.0)
                         uv_coords.append((u, v_coord))
                     else:
                         uv_coords.append((0.0, 0.0))
@@ -782,8 +714,8 @@ class IMPORT_OT_custom_json(Operator, ImportHelper):
                     uv_raw = vertices_data[vert_index]["uv"]
 
                     uv_layer.data[loop_index].uv = (
-                        uv_raw[0] / 255.0,
-                        uv_raw[1] / 255.0
+                        uv_raw[0] / 256.0,
+                        1 - (uv_raw[1] / 256.0)
                     )
 
 # =========================================================
@@ -839,6 +771,8 @@ def register():
     for cls in classes:
         bpy.utils.register_class(cls)
 
+    gradient_weights.register()
+
     bpy.types.Object.json_mesh_props = PointerProperty(type=JSONMeshProperties)
 
     bpy.types.TOPBAR_MT_file_import.append(menu_import)
@@ -849,6 +783,8 @@ def unregister():
     bpy.types.TOPBAR_MT_file_export.remove(menu_export)
 
     del bpy.types.Object.json_mesh_props
+
+    gradient_weights.unregister()
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
